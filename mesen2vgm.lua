@@ -235,13 +235,15 @@ local function writeGd3()
 	writeUtf16leCodepoint(0)
 	-- notes
 	writeUtf16leCodepoint(0)
-	local eof = (vgm_handle:seek("cur", 0) - start) - 8
+	local eof_real = vgm_handle:seek("cur", 0)
+	local eof = (eof_real - start) - 12
 	vgm_handle:seek("set", start + 8)
 	vgm_handle:write(string.char(eof & 0xFF))
 	vgm_handle:write(string.char((eof & 0xFF00) >> 8))
 	vgm_handle:write(string.char((eof & 0xFF0000) >> 16))
 	vgm_handle:write(string.char((eof & 0xFF000000) >> 24))
 	
+	vgm_handle:seek("set", eof_real)
 	return start - 0x14
 end
 
@@ -265,9 +267,8 @@ local function checkForKeys()
 	elseif emu.isKeyPressed("O") and is_logging then
 		is_logging = false
 		vgm_handle:write(string.char(0x66))
-		-- end of file in header
-		local eof = vgm_handle:seek("cur", 0) - 4
 		local gd3 = writeGd3()
+		local eof = vgm_handle:seek("cur", 0) - 4
 		vgm_handle:seek("set", 0x14)
 		vgm_handle:write(string.char(gd3 & 0xFF))
 		vgm_handle:write(string.char((gd3 & 0xFF00) >> 8))

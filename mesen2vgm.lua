@@ -21,6 +21,28 @@ local is_logging = false
 local start_vgm_frame = 0
 local total_frames = 0
 
+local function writeUtf16leCodepoint(...)
+	local codepoints = {...}
+	for _, cp in ipairs(codepoints) do
+		if (cp >= 0x0000 and cp <= 0xD7FF) or (cp >= 0xE000 and cp <= 0xFFFF) then
+			vgm_handle:write(string.char(cp & 0xFF))
+			vgm_handle:write(string.char((cp & 0xFF00) >> 8))
+		elseif cp >= 0x010000 and cp <= 0x10FFFF then
+			local subtract = cp - 0x010000
+			local high = (subtract >> 10) + 0xD800
+			local low = (subtract & 0x3FF) + 0xDC00
+			vgm_handle:write(string.char(high & 0xFF))
+			vgm_handle:write(string.char((high & 0xFF00) >> 8))
+			vgm_handle:write(string.char(low & 0xFF))
+			vgm_handle:write(string.char((low & 0xFF00) >> 8))
+		end
+	end
+end
+
+local function getUtf8Codepoints(s)
+	return utf8.codepoint(s, 1, #s)
+end
+
 function readPSGMemGB(address)
 	return emu.read(address, emu.memType.gameboyMemory, false)
 end
@@ -169,6 +191,60 @@ local vgm_header = {
 0xB3, 0x16, 0xFF
 }
 
+local gd3_header = {
+0x47, 0x64, 0x33, 0x20, 0x00, 0x01, 0x00, 0x00, 0xAA, 0xAA, 0xAA, 0xAA
+}
+
+local function writeGd3()
+	local start = vgm_handle:seek("cur", 0)
+	for _, v in ipairs(gd3_header) do
+		vgm_handle:write(string.char(v))
+	end
+	-- track name
+	writeUtf16leCodepoint(0)
+	-- track name (non-english)
+	writeUtf16leCodepoint(0)
+	-- game name
+	writeUtf16leCodepoint(getUtf8Codepoints(emu.getRomInfo()["name"]))
+	writeUtf16leCodepoint(0)
+	-- game name (non-english)
+	writeUtf16leCodepoint(0)
+	-- system name
+	if emu.getState()["consoleType"] == "Gameboy" then
+		if emu.read(0x0143, emu.memType.gameboyMemory, false) == 0xC0 then
+			writeUtf16leCodepoint(getUtf8Codepoints("Game Boy Color"))
+		else
+			writeUtf16leCodepoint(getUtf8Codepoints("Game Boy"))
+		end
+	elseif emu.getState()["consoleType"] == "Gba" then
+		writeUtf16leCodepoint(getUtf8Codepoints("Game Boy Advance"))
+	else
+		writeUtf16leCodepoint(getUtf8Codepoints(emu.getState()["consoleType"]))
+	end
+	writeUtf16leCodepoint(0)
+	-- system name (ne)
+	writeUtf16leCodepoint(0)
+	-- author name
+	writeUtf16leCodepoint(0)
+	-- author name (ne)
+	writeUtf16leCodepoint(0)
+	-- date
+	writeUtf16leCodepoint(0)
+	-- converter
+	writeUtf16leCodepoint(getUtf8Codepoints("mesen2vgm"))
+	writeUtf16leCodepoint(0)
+	-- notes
+	writeUtf16leCodepoint(0)
+	local eof = (vgm_handle:seek("cur", 0) - start) - 8
+	vgm_handle:seek("set", start + 8)
+	vgm_handle:write(string.char(eof & 0xFF))
+	vgm_handle:write(string.char((eof & 0xFF00) >> 8))
+	vgm_handle:write(string.char((eof & 0xFF0000) >> 16))
+	vgm_handle:write(string.char((eof & 0xFF000000) >> 24))
+	
+	return start - 0x14
+end
+
 local write_callback_reference = 0
 local function checkForKeys()
 	if emu.isKeyPressed("P") and not is_logging then
@@ -191,6 +267,13 @@ local function checkForKeys()
 		vgm_handle:write(string.char(0x66))
 		-- end of file in header
 		local eof = vgm_handle:seek("cur", 0) - 4
+		local gd3 = writeGd3()
+		vgm_handle:seek("set", 0x14)
+		vgm_handle:write(string.char(gd3 & 0xFF))
+		vgm_handle:write(string.char((gd3 & 0xFF00) >> 8))
+		vgm_handle:write(string.char((gd3 & 0xFF0000) >> 16))
+		vgm_handle:write(string.char((gd3 & 0xFF000000) >> 24))
+		-- eof
 		vgm_handle:seek("set", 4)
 		vgm_handle:write(string.char(eof & 0xFF))
 		vgm_handle:write(string.char((eof & 0xFF00) >> 8))
@@ -203,7 +286,6 @@ local function checkForKeys()
 		vgm_handle:write(string.char((total_frames & 0xFF0000) >> 16))
 		vgm_handle:write(string.char((total_frames & 0xFF000000) >> 24))
 		vgm_handle:close()
-		emu.log(total_frames)
 		emu.removeMemoryCallback(write_callback_reference, emu.callbackType.write, writeBegin, writeEnd)
 		emu.displayMessage("Script", "Logging stopped")
 	end

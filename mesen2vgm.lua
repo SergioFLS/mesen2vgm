@@ -189,13 +189,21 @@ local function checkForKeys()
 	elseif emu.isKeyPressed("O") and is_logging then
 		is_logging = false
 		vgm_handle:write(string.char(0x66))
+		-- end of file in header
 		local eof = vgm_handle:seek("cur", 0) - 4
 		vgm_handle:seek("set", 4)
 		vgm_handle:write(string.char(eof & 0xFF))
 		vgm_handle:write(string.char((eof & 0xFF00) >> 8))
 		vgm_handle:write(string.char((eof & 0xFF0000) >> 16))
 		vgm_handle:write(string.char((eof & 0xFF000000) >> 24))
+		-- total samples
+		vgm_handle:seek("set", 0x18)
+		vgm_handle:write(string.char(total_frames & 0xFF))
+		vgm_handle:write(string.char((total_frames & 0xFF00) >> 8))
+		vgm_handle:write(string.char((total_frames & 0xFF0000) >> 16))
+		vgm_handle:write(string.char((total_frames & 0xFF000000) >> 24))
 		vgm_handle:close()
+		emu.log(total_frames)
 		emu.removeMemoryCallback(write_callback_reference, emu.callbackType.write, writeBegin, writeEnd)
 		emu.displayMessage("Script", "Logging stopped")
 	end
